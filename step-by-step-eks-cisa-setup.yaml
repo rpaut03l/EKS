@@ -66,7 +66,7 @@ $ export REGION=ap-southeast-1 && export CLUSTERNAME="pqn-demo-eks-cluster"
 b, Create a test secret:
 $ aws --region "$REGION" secretsmanager  create-secret --name MySecret --secret-string '{"username":"accessfoo", "password":"secretbar"}'
 {
-    "ARN": "arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:MySecret-rbkra8",
+    "ARN": "arn:aws:secretsmanager:ap-southeast-1:<aws_account_no>:secret:MySecret-rbkra8",
     "Name": "MySecret",
     "VersionId": "8e47ef05-4f60-499a-b842-90903c7082fd"
 }
@@ -75,9 +75,9 @@ NOTE: Need to update the "ARN" of the Secret to be used in below command.
 
 c, Create a Resource Policy for the pod that limits its access to the secret you created in the previous step.
 For <SECRETARN>, use the ARN of the secret. Save the policy ARN in a shell variable.
-POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:secret-1-sQQzwf""]}] }')
+POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:<aws_account_no>:secret:secret-1-sQQzwf""]}] }')
 
-POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:MySecret-rbkra8"]}] }')
+POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:<aws_account_no>:secret:MySecret-rbkra8"]}] }')
 d, Create an IAM OIDC provider for the cluster if you don't already have one :
 $ eksctl utils associate-iam-oidc-provider --region="$REGION" --cluster="$CLUSTERNAME" --approve # Only run this once
 2022-05-12 00:19:43 [ℹ]  eksctl version 0.96.0
