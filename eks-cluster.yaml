@@ -1,0 +1,43 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: basic-cluster
+  region: ap-southeast-1
+  version: "1.22"
+managedNodeGroups:
+  - name: managed-ng-public
+    instanceType: t3.medium
+    minSize: 1
+    desiredCapacity: 1
+    maxSize: 1
+    availabilityZones: ["ap-southeast-1a"]
+    volumeSize: 20
+    ssh: # Using existing EC2 Key pair
+      allow: true
+      publicKeyName: eks-demo-sg
+    tags:
+      nodegroup-role: worker
+
+# NOTES #
+# ➜ export REGION=ap-southeast-1 && export CLUSTERNAME="basic-cluster-1"
+# ➜  AWS_ACCOUNT_DVO_EMAIL # eksctl create cluster -f ~/Downloads/FSMLK_CODE_REPO/FSMLK_Data/LEARNING/terraform_learning/CKA_CKAD_EXAM_DATA/HEML\ Package\ Management/eks-dem-node-data/aws-auth-cm.yaml
+# ➜ eksctl utils update-cluster-logging --enable-types={SPECIFY-YOUR-LOG-TYPES-HERE (e.g. all)} --region=us-east-1 --cluster=basic-cluster-1'
+# ➜ eksctl delete cluster --region=us-east-1 --name=basic-cluster
+
+# For Creating the CSI Driver - APPLICATION USE CASE -
+# ➜ export REGION=ap-southeast-1 && export CLUSTERNAME="basic-cluster-1"
+# ➜ aws --region "$REGION" secretsmanager create-secret --name service-api-key --secret-string 'mysecretapikey'
+# ➜ POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name service-api-key-secret-policy --policy-document '{
+#     "Version": "2012-10-17",
+#     "Statement": [ {
+#         "Effect": "Allow",
+#         "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+#         "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:service-api-key-0Tpiq3"]
+#     } ]
+# }')
+
+# ➜ eksctl create iamserviceaccount --name service-api-key-sa --region="$REGION" --cluster "$CLUSTERNAME" --attach-policy-arn "$POLICY_ARN" --approve
+# NOTE: IF it says no IDC Provider, then run below command and then run it after that.
+# ➜ eksctl utils associate-iam-oidc-provider --region=ap-southeast-1 --cluster=basic-cluster-1 --approve
+# ➜ eksctl create iamserviceaccount --name service-api-key-sa --region="$REGION" --cluster "$CLUSTERNAME" --attach-policy-arn "$POLICY_ARN" --approve
+

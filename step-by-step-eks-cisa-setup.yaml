@@ -1,0 +1,148 @@
+# Setup EKS Cluster and then Create CSI Driver to store credentials #
+# Sources:
+# 0, https://aws.plainenglish.io/kubernetes-deep-dive-two-create-aws-eks-cluster-with-one-command-3b23e592db14
+# a, https://docs.aws.amazon.com/secretsmanager/latest/userguide/secretsmanager-userguide.pdf
+# b, https://particule.io/en/blog/aws-csi-secret-manager/
+
+1, Setup EKS Cluster :
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: basic-cluster
+  region: ap-southeast-1
+  version: "1.22"
+managedNodeGroups:
+  - name: managed-ng-public
+    instanceType: t3.medium
+    minSize: 1
+    desiredCapacity: 1
+    maxSize: 1
+    availabilityZones: ["ap-southeast-1a"]
+    volumeSize: 20
+    ssh: # Using existing EC2 Key pair
+      allow: true
+      publicKeyName: eks-demo-sg
+    tags:
+      nodegroup-role: worker
+
+1.a, $ eksctl create cluster -f cluster.yaml
+
+2, ➜  AWS_ACCOUNT_DVO_EMAIL $ eksctl get cluster
+2022-05-11 23:59:36 [ℹ]  eksctl version 0.96.0
+2022-05-11 23:59:36 [ℹ]  using region ap-southeast-1
+NAME    REGION    EKSCTL CREATED
+basic-cluster ap-southeast-1  True
+
+3, ➜  AWS_ACCOUNT_DVO_EMAIL $ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.100.0.1   <none>        443/TCP   47m
+
+4, "Install the ASCP" :
+The ASCP (AWS Secrets and Configuration Provider) is available on GitHub in the secrets-store-csi-provider-aws repository. 
+The repo also contains example YAML files for creating and mounting a secret. You first install the Kubernetes Secrets Store CSI Driver, and then you install the ASCP.
+-> To install the ASCP:
+a. To Install the Secrets Store CSI Driver, run the following commands to add the Helm Repo.
+$ helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+$ helm install -n kube-system csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver
+
+-> To verify that Secrets Store CSI Driver has started, run:
+$ kubectl --namespace=kube-system get pods -l "app=secrets-store-csi-driver"
+NAME                                               READY   STATUS    RESTARTS   AGE
+csi-secrets-store-secrets-store-csi-driver-k24z6   3/3     Running   0          31s
+
+b. To Install the ASCP (AWS Secrets and Configuration Provider),use the YAML file in the GitHub repo deployment directory:
+$ kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
+serviceaccount/csi-secrets-store-provider-aws created
+clusterrole.rbac.authorization.k8s.io/csi-secrets-store-provider-aws-cluster-role created
+clusterrolebinding.rbac.authorization.k8s.io/csi-secrets-store-provider-aws-cluster-rolebinding created
+daemonset.apps/csi-secrets-store-provider-aws created
+
+
+3, To create and mount a secret :
+a, Set the AWS Region and the name of your cluster as shell variables so you can use the minbash commands. For <REGION>, enter the AWS Region where your Amazon EKS cluster runs. For <CLUSTERNAME>, enter the name of your cluster.
+$ export REGION=ap-southeast-1 && export CLUSTERNAME="pqn-demo-eks-cluster"
+
+b, Create a test secret:
+$ aws --region "$REGION" secretsmanager  create-secret --name MySecret --secret-string '{"username":"accessfoo", "password":"secretbar"}'
+{
+    "ARN": "arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:MySecret-rbkra8",
+    "Name": "MySecret",
+    "VersionId": "8e47ef05-4f60-499a-b842-90903c7082fd"
+}
+
+NOTE: Need to update the "ARN" of the Secret to be used in below command.
+
+c, Create a Resource Policy for the pod that limits its access to the secret you created in the previous step.
+For <SECRETARN>, use the ARN of the secret. Save the policy ARN in a shell variable.
+POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:secret-1-sQQzwf""]}] }')
+
+POLICY_ARN=$(aws --region "$REGION" --query Policy.Arn --output text iam create-policy --policy-name nginx-deployment-policy --policy-document '{ "Version": "2012-10-17", "Statement": [ { "Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:MySecret-rbkra8"]}] }')
+d, Create an IAM OIDC provider for the cluster if you don't already have one :
+$ eksctl utils associate-iam-oidc-provider --region="$REGION" --cluster="$CLUSTERNAME" --approve # Only run this once
+2022-05-12 00:19:43 [ℹ]  eksctl version 0.96.0
+2022-05-12 00:19:43 [ℹ]  using region ap-southeast-1
+2022-05-12 00:19:44 [ℹ]  will create IAM Open ID Connect provider for cluster "basic-cluster" in "ap-southeast-1"
+2022-05-12 00:19:45 [✔]  created IAM Open ID Connect provider for cluster "basic-cluster" in "ap-southeast-1"
+
+e, Create the Service Account the pod uses and associate the Resource Policy you created in step3 with that service account. 
+For this tutorial, for the service account name, you use "nginx-deployment-sa" -
+$ eksctl create iamserviceaccount --name nginx-deployment-sa --region="$REGION" --cluster "$CLUSTERNAME" --attach-policy-arn "$POLICY_ARN" --approve --override-existing-serviceaccounts
+
+f, "Create the Secret Provider Class to specify which secret to mount in the pod".The following command uses ExampleSecretProviderClass.yaml in the ASCP (AWS Secrets and Configuration Provider) GitHub repo examples directory to mount the secret you created in step 1 -
+$ kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/examples/ExampleSecretProviderClass.yaml
+Warning: secrets-store.csi.x-k8s.io/v1alpha1 is deprecated. Use secrets-store.csi.x-k8s.io/v1 instead.
+secretproviderclass.secrets-store.csi.x-k8s.io/nginx-deployment-aws-secrets created
+
+g, Deploy your pod via Deployment and Service. The following command uses ExampleDeployment.yaml in the ASCP GitHub repo examples directory to mount the secret in /mnt/secrets-store in the pod -
+$ kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/examples/ExampleDeployment.yaml
+service/nginx-deployment created
+deployment.apps/nginx-deployment created
+
+h, To verify the secret has been mounted properly, use the following command and confirm that your secret value appears -
+$ kubectl exec -it $(kubectl get pods | awk '/nginx-deployment/{print $1}' | head -1) cat /mnt/secrets-store/MySecret; echo
+OR
+$ kubectl exec nginx-deployment-76f76f6b68-5wgjn -- cat /mnt/secrets-store/MySecret; echo
+{"username":"rohitpa", "password":"hunter2"}
+
+i, To Get inside the POD to check the secrets -
+$ kubectl exec -it nginx-deployment-76f76f6b68-5wgjn -- sh
+and then run inside the POD -
+# cat /mnt/secrets-store/MySecret
+{"username":"rohitpa", "password":"hunter2"}
+
+
+4, Once all test and verified can delete the EKS Cluster and other things -
+$ eksctl delete cluster --name $CLUSTERNAME
+
+
+---
+To look into YAML file for CSI daemonset-
+Ex:  kubectl get daemonset csi-secrets-store-provider-aws -o yaml -n kube-system 
+---
+
+
+
+
+
+
+
+
+
+
+
+
+---------
+To get a shell access to the container running inside the application pod, all you have to do is:
+$ kubectl exec -it --namespace <your namespace> <your pod name> -- sh
+---------
+
+-----
+NOTE:
+  - To create KUBECONFIG File -
+  a. aws sts get-caller-identity
+  b. aws --version
+  c. aws eks update-kubeconfig --region region-code --name cluster-name
+  ex: aws eks update-kubeconfig --region ap-southeast-1 --name basic-cluster
+  o/p: Updated context arn:aws:eks:ap-southeast-1:008063937911:cluster/basic-cluster in /root/.kube/config
+-----
