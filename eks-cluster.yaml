@@ -32,7 +32,7 @@ managedNodeGroups:
 #     "Statement": [ {
 #         "Effect": "Allow",
 #         "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-#         "Resource": ["arn:aws:secretsmanager:ap-southeast-1:008063937911:secret:service-api-key-0Tpiq3"]
+#         "Resource": ["arn:aws:secretsmanager:ap-southeast-1:<aws_account_no>:secret:service-api-key-0Tpiq3"]
 #     } ]
 # }')
 
